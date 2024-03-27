@@ -93,7 +93,6 @@ class OpenBLASFactory
             try {
                 $ffiLapacke = FFI::cdef($code,$filename);
             } catch(FFIException $e) {
-                echo $e->getMessage()."\n";
                 continue;
             }
             self::$ffiLapacke = $ffiLapacke;
