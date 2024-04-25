@@ -21,7 +21,7 @@ Requirements
 ============
 
 - PHP 8.1 or PHP8.2 or PHP8.3
-- Linux or Windows
+- Windows or Linux(Ubuntu 20.04 or Debian 12 or later)
 - OpenBLAS
 
 How to download and setup
@@ -30,7 +30,7 @@ How to download and setup
 ### Windows
 The OpenBLAS Library release number is included in the filename of the rindow-openblas pre-built archive file.
 
-- https://github.com/xianyi/OpenBLAS/releases
+- https://github.com/OpenMathLib/OpenBLAS/releases
 
 Unzip it to a suitable location and set the execution path in the bin directory.
 
@@ -46,11 +46,10 @@ C> cd \your\app\dir
 C> composer require rindow/rindow-openblas-ffi
 ```
 
-### Ubuntu
-Use the apt command to install the deb file. 
-
+### Linux
+Install openblas with apt command
 ```shell
-$ sudo apt install libopenblas-base liblapacke
+$ sudo apt install libopenblas0-openmp liblapacke
 ```
 
 And then set it up using composer.
@@ -59,3 +58,43 @@ $ mkdir \your\app\dir
 $ cd \your\app\dir
 $ composer require rindow/rindow-openblas-ffi
 ```
+
+
+### Troubleshooting for Linux
+Since rindow-matlib currently uses OpenMP, choose the OpenMP version for OpenBLAS as well.
+
+Using the pthread version of OpenBLAS can cause conflicts and become unstable and slow.
+This issue does not occur on Windows.
+
+If you have already installed the pthread version of OpenBLAS,
+```shell
+$ sudo apt remove libopenblas0-pthread
+```
+
+But if you can't remove it, you can switch to it using the update-alternatives command.
+
+```shell
+$ sudo update-alternatives --config libopenblas.so.0-x86_64-linux-gnu
+$ sudo update-alternatives --config liblapack.so.3-x86_64-linux-gnu
+```
+
+If you really want to use the pthread version of OpenBLAS, please switch to the serial version of rindow-matlib.
+
+There are no operational mode conflicts with OpenBLAS on Windows.
+
+But, If you really want to use the pthread version of OpenBLAS, please switch to the serial version of rindow-matlib.
+
+```shell
+$ sudo update-alternatives --config librindowmatlib.so
+There are 2 choices for the alternative librindowmatlib.so (providing /usr/lib/librindowmatlib.so).
+
+  Selection    Path                                             Priority   Status
+------------------------------------------------------------
+* 0            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        auto mode
+  1            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        manual mode
+  2            /usr/lib/rindowmatlib-serial/librindowmatlib.so   90        manual mode
+
+Press <enter> to keep the current choice[*], or type selection number: 2
+```
+Choose the "rindowmatlib-serial".
+

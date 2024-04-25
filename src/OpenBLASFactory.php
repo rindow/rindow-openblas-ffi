@@ -12,11 +12,19 @@ class OpenBLASFactory
 {
     private static ?FFI $ffi = null;
     private static ?FFI $ffiLapacke = null;
+    /** @var array<string> $libs_win */
     protected array $libs_win = ['libopenblas.dll'];
-    protected array $libs_linux = ['libopenblas.so','libopenblas.so.0'];
+    /** @var array<string> $libs_linux */
+    protected array $libs_linux = ['libopenblas.so.0'];
+    /** @var array<string> $lapacke_win */
     protected array $lapacke_win = ['libopenblas.dll'];
-    protected array $lapacke_linux = ['liblapacke.so','liblapacke.so.3'];
+    /** @var array<string> $lapacke_linux */
+    protected array $lapacke_linux = ['liblapacke.so.3'];
 
+    /**
+     * @param array<string> $libFiles
+     * @param array<string> $lapackeLibs
+     */
     public function __construct(
         string $headerFile=null,
         array $libFiles=null,

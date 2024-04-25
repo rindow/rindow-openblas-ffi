@@ -3,7 +3,7 @@ namespace RindowTest\OpenBLAS\FFI;
 
 use Interop\Polite\Math\Matrix\NDArray;
 use Interop\Polite\Math\Matrix\BLAS;
-use ArrayAccess;
+use Interop\Polite\Math\Matrix\Buffer as BufferInterface;
 use ArrayObject;
 use InvalidArgumentException;
 use Rindow\Math\Buffer\FFI\Buffer;
@@ -186,7 +186,7 @@ trait Utils
         
             public function dtype() { return $this->dtype; }
         
-            public function buffer() : ArrayAccess { return $this->buffer; }
+            public function buffer() : BufferInterface { return $this->buffer; }
         
             public function offset() : int { return $this->offset; }
         

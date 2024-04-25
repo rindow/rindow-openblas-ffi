@@ -26,7 +26,7 @@ class Blas
         $this->ffi = $ffi;
     }
 
-    public function getFFI()
+    public function getFFI() : FFI
     {
         return $this->ffi;
     }
@@ -554,6 +554,108 @@ class Blas
                     $Y->addr($offsetY),$incY,
                     $C[$offsetC],
                     $S[$offsetS],
+                );
+                break;
+            }
+            default: {
+                throw new InvalidArgumentException('Unsuppored data type');
+            }
+        }
+    }
+
+    public function rotm(
+        int $N,
+        BufferInterface $X, int $offsetX, int $incX,
+        BufferInterface $Y, int $offsetY, int $incY,
+        BufferInterface $P, int $offsetP
+        ) : void
+    {
+        $ffi= $this->ffi;
+
+        // Check Buffer X
+        $this->assert_vector_buffer_spec("X", $X, $N, $offsetX, $incX);
+        // Check Buffer Y
+        $this->assert_vector_buffer_spec("Y", $Y, $N, $offsetY, $incY);
+        // Check Buffer P
+        $this->assert_vector_buffer_spec("P",  $P,  5, $offsetP,  1);
+
+        // Check Buffer A and B and C and S
+        $dtype = $X->dtype();
+        if($dtype!=$Y->dtype()||$dtype!=$P->dtype()) {
+            throw new InvalidArgumentException("Unmatch data type for X,Y and P");
+        }
+
+        switch($dtype) {
+            case NDArray::float32:{
+                $ffi->cblas_srotm(
+                    $N,
+                    $X->addr($offsetX), $incX,
+                    $Y->addr($offsetY), $incY,
+                    $P->addr($offsetP),
+                );
+                break;
+            }
+            case NDArray::float64:{
+                $ffi->cblas_drotm(
+                    $N,
+                    $X->addr($offsetX), $incX,
+                    $Y->addr($offsetY), $incY,
+                    $P->addr($offsetP),
+                );
+                break;
+            }
+            default: {
+                throw new InvalidArgumentException('Unsuppored data type');
+            }
+        }
+    }
+
+    public function rotmg(
+        BufferInterface $D1, int $offsetD1,
+        BufferInterface $D2, int $offsetD2,
+        BufferInterface $B1, int $offsetB1,
+        BufferInterface $B2, int $offsetB2,
+        BufferInterface $P, int $offsetP
+        ) : void
+    {
+        $ffi= $this->ffi;
+
+        // Check Buffer D1
+        $this->assert_vector_buffer_spec("D1", $D1, 1, $offsetD1, 1);
+        // Check Buffer D2
+        $this->assert_vector_buffer_spec("D2", $D2, 1, $offsetD2, 1);
+        // Check Buffer B1
+        $this->assert_vector_buffer_spec("B1", $B1, 1, $offsetB1, 1);
+        // Check Buffer B2
+        $this->assert_vector_buffer_spec("B2", $B1, 1, $offsetB2, 1);
+        // Check Buffer P
+        $this->assert_vector_buffer_spec("P",  $P,  5, $offsetP,  1);
+
+        // Check Buffer A and B and C and S
+        $dtype = $D1->dtype();
+        if($dtype!=$D2->dtype()||$dtype!=$B1->dtype()||
+            $dtype!=$B2->dtype()||$dtype!=$P->dtype()) {
+            throw new InvalidArgumentException("Unmatch data type for D1,D2,B1,B2 and P");
+        }
+
+        switch($dtype) {
+            case NDArray::float32:{
+                $ffi->cblas_srotmg(
+                    $D1->addr($offsetD1),
+                    $D2->addr($offsetD2),
+                    $B1->addr($offsetB1),
+                    $B2[$offsetB2],
+                    $P->addr($offsetP),
+                );
+                break;
+            }
+            case NDArray::float64:{
+                $ffi->cblas_drotmg(
+                    $D1->addr($offsetD1),
+                    $D2->addr($offsetD2),
+                    $B1->addr($offsetB1),
+                    $B2[$offsetB2],
+                    $P->addr($offsetP),
                 );
                 break;
             }

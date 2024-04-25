@@ -3,10 +3,15 @@ namespace Rindow\OpenBLAS\FFI;
 
 use Interop\Polite\Math\Matrix\NDArray;
 use InvalidArgumentException;
-
+use RuntimeException;
 use FFI;
 
 use Interop\Polite\Math\Matrix\LinearBuffer as BufferInterface;
+
+class ffi_char_t
+{
+    public string $cdata;
+}
 
 class Lapack
 {
@@ -15,7 +20,7 @@ class Lapack
     const LAPACK_WORK_MEMORY_ERROR      = -1010;
     const LAPACK_TRANSPOSE_MEMORY_ERROR = -1010;
 
-    protected $ffi;
+    protected FFI $ffi;
 
     public function __construct(FFI $ffi)
     {
@@ -89,9 +94,10 @@ class Lapack
         ) {
             throw new InvalidArgumentException("Unmatch data type", 0);
         }
-    
+        /** @var ffi_char_t $jobu_p */
         $jobu_p = $ffi->new('char');
         $jobu_p->cdata = chr($jobu);
+        /** @var ffi_char_t $jobvt_p */
         $jobvt_p = $ffi->new('char');
         $jobvt_p->cdata = chr($jobvt);
         switch ($dtype) {
