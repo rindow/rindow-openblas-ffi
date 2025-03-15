@@ -20,9 +20,8 @@ Very useful when you want to do deep learning with PHP!
 Requirements
 ============
 
-- PHP 8.1 or PHP8.2 or PHP8.3
-- Windows or Linux(Ubuntu 20.04 or Debian 12 or later)
-- OpenBLAS
+- PHP 8.1 or PHP8.2 or PHP8.3 or PHP8.4
+- OpenBLAS 0.3.8 or later
 
 How to download and setup
 =========================
@@ -49,7 +48,7 @@ C> composer require rindow/rindow-openblas-ffi
 ### Linux
 Install openblas with apt command
 ```shell
-$ sudo apt install libopenblas0-openmp liblapacke
+$ sudo apt install libopenblas0 liblapacke
 ```
 
 And then set it up using composer.
@@ -61,14 +60,17 @@ $ composer require rindow/rindow-openblas-ffi
 
 
 ### Troubleshooting for Linux
-Since rindow-matlib currently uses OpenMP, choose the OpenMP version for OpenBLAS as well.
 
-Using the pthread version of OpenBLAS can cause conflicts and become unstable and slow.
+Since rindow-matlib currently uses ptheads, so you should choose the pthread version for OpenBLAS as well.
+In version 1.0 of Rindow-matlib we recommended the OpenMP version, but now we have changed our policy and are recommending the pthread version.
+
+Using the OpenMP version of OpenBLAS can cause conflicts and become unstable and slow.
 This issue does not occur on Windows.
 
-If you have already installed the pthread version of OpenBLAS,
+If you have already installed the OpenMP version of OpenBLAS, you can delete it and install pthread version.
 ```shell
-$ sudo apt remove libopenblas0-pthread
+$ sudo apt install libopenblas0-pthread liblapacke
+$ sudo apt remove libopenblas0-openmp
 ```
 
 But if you can't remove it, you can switch to it using the update-alternatives command.
@@ -78,9 +80,7 @@ $ sudo update-alternatives --config libopenblas.so.0-x86_64-linux-gnu
 $ sudo update-alternatives --config liblapack.so.3-x86_64-linux-gnu
 ```
 
-If you really want to use the pthread version of OpenBLAS, please switch to the serial version of rindow-matlib.
-
-There are no operational mode conflicts with OpenBLAS on Windows.
+If you really want to use the OpenMP version of OpenBLAS, please switch to the serial version of rindow-matlib.
 
 But, If you really want to use the pthread version of OpenBLAS, please switch to the serial version of rindow-matlib.
 
@@ -93,6 +93,7 @@ There are 2 choices for the alternative librindowmatlib.so (providing /usr/lib/l
 * 0            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        auto mode
   1            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        manual mode
   2            /usr/lib/rindowmatlib-serial/librindowmatlib.so   90        manual mode
+  3            /usr/lib/rindowmatlib-thread/librindowmatlib.so   100       manual mode
 
 Press <enter> to keep the current choice[*], or type selection number: 2
 ```

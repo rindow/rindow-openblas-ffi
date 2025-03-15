@@ -17,10 +17,13 @@ typedef int32_t                     lapack_int;
 /////////////////////////////////////////////
 //#define xdouble double
 typedef double xdouble;
-//#define OPENBLAS_COMPLEX_STRUCT
-typedef struct _openblas_complex_float { float real, imag; } openblas_complex_float;
-typedef struct _openblas_complex_double { double real, imag; } openblas_complex_double;
-typedef struct _openblas_complex_xdouble { xdouble real, imag; } openblas_complex_xdouble;
+//#define openblas_complex_STRUCT
+struct _openblas_complex_float { float real, imag; };
+struct _openblas_complex_double { double real, imag; };
+struct _openblas_complex_xdouble { xdouble real, imag; };
+typedef struct _openblas_complex_float openblas_complex_float;
+typedef struct _openblas_complex_double openblas_complex_double;
+typedef struct _openblas_complex_xdouble openblas_complex_xdouble;
 //#define openblas_make_complex_float(real, imag)    {(real), (imag)}
 //#define openblas_make_complex_double(real, imag)   {(real), (imag)}
 //#define openblas_make_complex_xdouble(real, imag)  {(real), (imag)}
@@ -86,8 +89,8 @@ openblas_complex_float  cblas_cdotc(const blasint n, const void  *x, const blasi
 openblas_complex_double cblas_zdotu(const blasint n, const void *x, const blasint incx, const void *y, const blasint incy);
 openblas_complex_double cblas_zdotc(const blasint n, const void *x, const blasint incx, const void *y, const blasint incy);
 
-void  cblas_cdotu_sub(const blasint n, const void  *x, const blasint incx, const void  *y, const blasint incy, void  *ret);
-void  cblas_cdotc_sub(const blasint n, const void  *x, const blasint incx, const void  *y, const blasint incy, void  *ret);
+void  cblas_cdotu_sub(const blasint n, const void  *x, const blasint incx, const void  *y, const blasint incy, void *ret);
+void  cblas_cdotc_sub(const blasint n, const void  *x, const blasint incx, const void  *y, const blasint incy, void *ret);
 void  cblas_zdotu_sub(const blasint n, const void *x, const blasint incx, const void *y, const blasint incy, void *ret);
 void  cblas_zdotc_sub(const blasint n, const void *x, const blasint incx, const void *y, const blasint incy, void *ret);
 

@@ -7,13 +7,38 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: true
+      #fail-fast: true
       matrix:
-        php: ['8.1','8.2','8.3']
-  
+        include:
+          - name: PHP8.1
+            os: ubuntu-latest
+            php: '8.1'
+            phpunit: '10.5'
+          - name: PHP8.3
+            os: ubuntu-latest
+            php: '8.3'
+            phpunit: '11.5'
+          - name: PHP8.4
+            os: ubuntu-latest
+            php: '8.4'
+            phpunit: '11.5'
+          - name: Windows
+            os: windows-latest
+            php: '8.4'
+            phpunit: '11.5'
+#          - name: macOS
+#            os: macos-latest
+#            php: '8.4'
+#            phpunit: '11.5'
+#          - name: macOS-x86_64
+#            os: macos-13
+#            php: '8.4'
+#            phpunit: '11.5'
+
+
     steps:
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@v2
@@ -21,13 +46,14 @@ jobs:
           php-version: ${{ matrix.php }}
           # PHP Extras
           coverage: none
-          tools: composer, phpunit:10.5
+          tools: composer, phpunit:${{ matrix.phpunit }}, phpstan
           #ini-values: "memory_limit=512M"
           extensions: ffi
 
       - name: Install OpenBLAS
+        if: ${{ startsWith(matrix.os, 'ubuntu-') }}
         run: |
-          sudo apt install -y libopenblas0-openmp liblapacke
+          sudo apt install -y libopenblas0 liblapacke
 
       - name: Checkout codes
         uses: "actions/checkout@v4"
@@ -41,20 +67,39 @@ jobs:
       - name: Composer
         run: composer update
 
+      #- name: PHP Static Analysys
+      #  uses: php-actions/phpstan@v3
+      #  with:
+      #    php_version: ${{ matrix.php }}
+      #    path: src/
+
       - name: PHP Static Analysys
-        uses: php-actions/phpstan@v3
-        with:
-          php_version: ${{ matrix.php }}
-          path: src/
+        run: phpstan
 
       #- name: PHPUnit Tests
       #  uses: php-actions/phpunit@v3
       #  with:
       #    configuration: tests/phpunit.xml
-      #    version: 10.5
+      #    version: ${{ matrix.phpunit }}
       #    php_version: ${{ matrix.php }}
       #    filter: ReleaseTest
 
       - name: PHPUnit Tests
+        if: ${{ startsWith(matrix.os, 'ubuntu-') }}
+        run: phpunit -c tests
+
+      - name: PHPUnit Tests
+        if: ${{ startsWith(matrix.os, 'windows-') }}
+        run: |
+          Invoke-WebRequest -Uri https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.27/OpenBLAS-0.3.27-x64.zip -OutFile openblas.zip
+          Expand-Archive -Path openblas.zip
+          $currentDir = (Get-Location).Path
+          $OpenBLAS_DIR = Join-Path -Path $currentDir -ChildPath 'openblas'
+          $env:PATH = "$OpenBLAS_DIR/bin;$env:PATH"
+          dir $OpenBLAS_DIR/bin
+          phpunit -c tests
+
+      - name: PHPUnit Tests
+        if: ${{ startsWith(matrix.os, 'macos-') }}
         run: phpunit -c tests
 
