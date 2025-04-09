@@ -20,8 +20,9 @@ Very useful when you want to do deep learning with PHP!
 Requirements
 ============
 
-- PHP 8.1 or PHP8.2 or PHP8.3 or PHP8.4
-- OpenBLAS 0.3.8 or later
+- PHP 8.1, PHP8.2, PHP8.3, PHP8.4
+- Linux, Windows, macOS
+- OpenBLAS 0.3.8 or later(Linux/Windows), vecLib(macOS)
 
 How to download and setup
 =========================
@@ -58,9 +59,15 @@ $ cd \your\app\dir
 $ composer require rindow/rindow-openblas-ffi
 ```
 
+### macOS
+Set it up using composer.
+```shell
+$ mkdir \your\app\dir
+$ cd \your\app\dir
+$ composer require rindow/rindow-openblas-ffi
+```
 
 ### Troubleshooting for Linux
-
 Since rindow-matlib currently uses ptheads, so you should choose the pthread version for OpenBLAS as well.
 In version 1.0 of Rindow-matlib we recommended the OpenMP version, but now we have changed our policy and are recommending the pthread version.
 
@@ -80,22 +87,19 @@ $ sudo update-alternatives --config libopenblas.so.0-x86_64-linux-gnu
 $ sudo update-alternatives --config liblapack.so.3-x86_64-linux-gnu
 ```
 
-If you really want to use the OpenMP version of OpenBLAS, please switch to the serial version of rindow-matlib.
-
-But, If you really want to use the pthread version of OpenBLAS, please switch to the serial version of rindow-matlib.
+If you really want to use the OpenMP version of OpenBLAS, please switch to the OpenMP version of rindow-matlib.
 
 ```shell
 $ sudo update-alternatives --config librindowmatlib.so
-There are 2 choices for the alternative librindowmatlib.so (providing /usr/lib/librindowmatlib.so).
+There are 1 choices for the alternative librindowmatlib.so (providing /usr/lib/librindowmatlib.so).
 
   Selection    Path                                             Priority   Status
 ------------------------------------------------------------
-* 0            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        auto mode
+* 0            /usr/lib/rindowmatlib-thread/librindowmatlib.so   95        auto mode
   1            /usr/lib/rindowmatlib-openmp/librindowmatlib.so   95        manual mode
   2            /usr/lib/rindowmatlib-serial/librindowmatlib.so   90        manual mode
   3            /usr/lib/rindowmatlib-thread/librindowmatlib.so   100       manual mode
 
-Press <enter> to keep the current choice[*], or type selection number: 2
+Press <enter> to keep the current choice[*], or type selection number: 1
 ```
-Choose the "rindowmatlib-serial".
-
+Choose the "rindowmatlib-openmp".
