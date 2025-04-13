@@ -1,6 +1,6 @@
 includes:
 	- phpstan-interop.neon
-	#- phpstan-baseline.neon
+	- phpstan-baseline.neon
 	
 parameters:
 	level: 6
@@ -9,18 +9,6 @@ parameters:
 	ignoreErrors:
 		-
 			message: "#^Call to an undefined method FFI::#"
-		-
-			message: '#^PHPDoc tag @var with type ArrayObject\<int, int\> is not subtype of native type FFI\\CData#'
-			identifier: varTag.nativeType
-			count: 1
-			path: src/Lapackb.php
-
-		-
-			message: '#^PHPDoc tag @var with type Rindow\\OpenBLAS\\FFI\\ffi_char_t2 is not subtype of native type FFI\\CData#'
-			identifier: varTag.nativeType
-			count: 2
-			path: src/Lapackb.php
-
 		-
 			message: '#^PHPDoc tag @var with type Rindow\\OpenBLAS\\FFI\\ffi_char_t is not subtype of native type FFI\\CData#'
 			identifier: varTag.nativeType

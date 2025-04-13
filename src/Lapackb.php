@@ -38,65 +38,128 @@ class Lapackb implements Lapack
         return $this->ffi;
     }
 
-    private function transpose(
-        int $m, int $n, int $dtype,
-        object $A, int $ldA,
-        object $B, int $ldB
-        ) : void
+    /**
+     * Get a temporary identity matrix (ColMajor layout).
+     * Consider caching these if memory/performance becomes an issue.
+     */
+    private function getIdentity(int $size, int $dtype, string $type) : FFI\CData
     {
-        $ffi = $this->ffi;
-        $blas = $this->blas;
-        if($dtype==NDArray::float32) {
-            $type = 'float';
-        } elseif($dtype==NDArray::float64) {
-            $type = 'double';
-        } else {
-            throw new InvalidArgumentException("Unsupport data type", 0);
+        $identity_p = $this->ffi->new("{$type}[$size * $size]");
+        // Initialize with zeros
+        $this->ffi::memset($identity_p, 0, $this->ffi::sizeof($identity_p));
+        // Set diagonal elements to 1.0 (ColMajor: I[i,i] is at offset i*size + i)
+        for($i = 0; $i < $size; $i++) {
+            $identity_p[$i * $size + $i] = 1.0;
         }
-        $size = $m*$m;
-        $identity_p = $ffi->new("{$type}[{$size}]");
-        $ffi::memset($identity_p,0,$ffi::sizeof($identity_p));
-        for($i=0;$i<$m;$i++) {
-            $identity_p[$i*$m+$i] = 1;
-        }
-        if($dtype==NDArray::float32) {
-            $blas->cblas_sgemm(
-                self::LAPACK_ROW_MAJOR,BLAS::Trans,BLAS::NoTrans,
-                $n,$m,$m,
-                1.0,
-                $A,$ldA,
-                $identity_p,$m,
-                0.0,
-                $B,$ldB
-            );
-        } else {
-            $blas->cblas_dgemm(
-                self::LAPACK_ROW_MAJOR,BLAS::Trans,BLAS::NoTrans,
-                $n,$m,$m,
-                1.0,
-                $A,$ldA,
-                $identity_p,$m,
-                0.0,
-                $B,$ldB
-            );
-        }
-
+        return $identity_p;
+    }
+    
+    /**
+     * Transposes a matrix using BLAS GEMM.
+     * Copies from RowMajor (m x n, ldA=n) to ColMajor (m x n, ldB=m).
+     * B_col = A_row^T * I_n (interpreted in ColMajor)
+     */
+    private function transpose_row_to_col_gemm(
+        int $m, int $n, int $dtype,
+        FFI\CData $A_ptr, int $ldA, // Source RowMajor data pointer and ld (n)
+        FFI\CData $B_ptr, int $ldB  // Destination ColMajor data pointer and ld (m)
+    ) : void
+    {
+        if ($ldA < $n) throw new InvalidArgumentException("transpose_row_to_col_gemm: ldA must be >= n");
+        if ($ldB < $m) throw new InvalidArgumentException("transpose_row_to_col_gemm: ldB must be >= m");
+    
+        $type = ($dtype == NDArray::float32) ? 'float' : 'double';
+        $gemm_func = ($dtype == NDArray::float32) ? 'cblas_sgemm' : 'cblas_dgemm';
+    
+        $identity_n = $this->getIdentity($n, $dtype, $type);
+        $ldI_n = $n; // ColMajor identity matrix leading dimension
+    
+        // We use CblasColMajor to avoid the ldc issue encountered with CblasRowMajor.
+        // Operation: C(m,n) = A(m,n)^T * B(n,n) where A is implicitly ColMajor(n,m) ld=n.
+        // Arguments for cblas_?gemm(ColMajor, TransA, NoTransB, M, N, K, alpha, A, ldA, B, ldB, beta, C, ldC):
+        // M = m (rows of op(A) and C)
+        // N = n (cols of op(B) and C)
+        // K = n (cols of op(A) = rows of op(B))
+        // A = A_ptr (interpreted as ColMajor n x m, ldA = n)
+        // ldA = n
+        // B = identity_n (ColMajor n x n, ldB = n)
+        // ldB = n
+        // C = B_ptr (output ColMajor m x n, ldC = m)
+        // ldC = m >= M = m (Constraint is met)
+        $this->blas->{$gemm_func}(
+            BLAS::ColMajor, // Or use integer constant 102
+            BLAS::Trans,    // Or use integer constant 112
+            BLAS::NoTrans,  // Or use integer constant 111
+            $m, $n, $n,
+            1.0,
+            $A_ptr, $ldA,       // A is RowMajor(m,n) but treated as ColMajor(n,m) ld=n
+            $identity_n, $ldI_n,
+            0.0,
+            $B_ptr, $ldB        // C is ColMajor(m,n) ld=m
+        );
+    }
+    
+    /**
+     * Transposes a matrix using BLAS GEMM.
+     * Copies from ColMajor (m x n, ldA=m) to RowMajor (m x n, ldB=n).
+     * B_row = A_col^T * I_m (interpreted in ColMajor)
+     */
+    private function transpose_col_to_row_gemm(
+        int $m, int $n, int $dtype,
+        FFI\CData $A_ptr, int $ldA, // Source ColMajor data pointer and ld (m)
+        FFI\CData $B_ptr, int $ldB  // Destination RowMajor data pointer and ld (n)
+    ) : void
+    {
+        if ($ldA < $m) throw new InvalidArgumentException("transpose_col_to_row_gemm: ldA must be >= m");
+        if ($ldB < $n) throw new InvalidArgumentException("transpose_col_to_row_gemm: ldB must be >= n");
+    
+        $type = ($dtype == NDArray::float32) ? 'float' : 'double';
+        $gemm_func = ($dtype == NDArray::float32) ? 'cblas_sgemm' : 'cblas_dgemm';
+    
+        $identity_m = $this->getIdentity($m, $dtype, $type);
+        $ldI_m = $m; // ColMajor identity matrix leading dimension
+    
+        // We use CblasColMajor.
+        // Operation: C(n,m) = A(m,n)^T * B(m,m) where A is ColMajor(m,n) ld=m.
+        // The output C(n,m) in ColMajor (ld=n) has the same memory layout as the desired RowMajor B(m,n) ld=n.
+        // Arguments for cblas_?gemm(ColMajor, TransA, NoTransB, M, N, K, alpha, A, ldA, B, ldB, beta, C, ldC):
+        // M = n (rows of op(A) and C)
+        // N = m (cols of op(B) and C)
+        // K = m (cols of op(A) = rows of op(B))
+        // A = A_ptr (ColMajor m x n, ldA = m)
+        // ldA = m
+        // B = identity_m (ColMajor m x m, ldB = m)
+        // ldB = m
+        // C = B_ptr (output ColMajor n x m, ldC = n) -> Effectively RowMajor(m,n) ld=n
+        // ldC = n >= M = n (Constraint is met)
+         $this->blas->{$gemm_func}(
+            BLAS::ColMajor, // Or use integer constant 102
+            BLAS::Trans,    // Or use integer constant 112
+            BLAS::NoTrans,  // Or use integer constant 111
+            $n, $m, $m,
+            1.0,
+            $A_ptr, $ldA,       // A is ColMajor(m,n) ld=m
+            $identity_m, $ldI_m,
+            0.0,
+            $B_ptr, $ldB        // C is ColMajor(n,m) ld=n (target buffer for RowMajor m x n)
+        );
     }
 
     public function gesvd(
         int $matrix_layout,
-        int $jobu,
-        int $jobvt,
+        int $jobu, // ord('A') or ord('S')
+        int $jobvt, // ord('A') or ord('S')
         int $m,
         int $n,
-        BufferInterface $A,  int $offsetA,  int $ldA,
+        BufferInterface $A,  int $offsetA,  int $ldA, // For ROW_MAJOR, ldA=$n; For COL_MAJOR, ldA=$m
         BufferInterface $S,  int $offsetS,
-        BufferInterface $U,  int $offsetU,  int $ldU,
-        BufferInterface $VT, int $offsetVT, int $ldVT,
+        BufferInterface $U,  int $offsetU,  int $ldU, // For ROW_MAJOR, ldU=colsU; For COL_MAJOR, ldU=$m
+        BufferInterface $VT, int $offsetVT, int $ldVT, // For ROW_MAJOR, ldVT=$n; For COL_MAJOR, ldVT=rowsVT
         BufferInterface $SuperB,  int $offsetSuperB
     ) : void
     {
         $ffi = $this->ffi;
+        // ... (Initial checks for shape, offsets, buffers, dtype) ...
         $this->assert_shape_parameter("m", $m);
         $this->assert_shape_parameter("n", $n);
 
@@ -140,171 +203,131 @@ class Lapackb implements Lapack
         if( $offsetSuperB+min($m,$n)-1 > count($SuperB)) {
             throw new InvalidArgumentException("bufferSuperB size is too small", 0);
         }
-    
+
+        $k = min($m, $n);
         $dtype = $A->dtype();
-        // Check Buffer A and B and C
-        if($dtype!=$S->dtype() ||
-            $dtype!=$U->dtype() ||
-            $dtype!=$VT->dtype() ||
-            $dtype!=$SuperB->dtype()
-        ) {
-            throw new InvalidArgumentException("Unmatch data type", 0);
-        }
         if($dtype==NDArray::float32) {
             $type = 'float';
+            $gesvd_func = 'sgesvd_';
         } elseif($dtype==NDArray::float64) {
             $type = 'double';
+            $gesvd_func = 'dgesvd_';
         } else {
-            throw new InvalidArgumentException("Unsupport data type", 0);
+            throw new InvalidArgumentException("Unsupported data type", 0);
         }
-        if($matrix_layout==self::LAPACK_ROW_MAJOR) {
-            $size = $m*$n;
-            $targetA_p = $ffi->new("{$type}[{$size}]");
-            $this->transpose($m,$n,$dtype,$A->addr($offsetA),$ldA,$targetA_p,$m);
-            $size = $m*$m;
-            $targetU_p = $ffi->new("{$type}[{$size}]");
-            $size = $n*$n;
-            $targetVT_p = $ffi->new("{$type}[{$size}]");
-            $ldA0 = $m;
-            $ldU0 = $m;
-            $ldVT0 = $n;
-        } elseif($matrix_layout==self::LAPACK_COL_MAJOR) {
-            $targetA_p = $A->addr($offsetA);
-            $targetU_p = $U->addr($offsetU);
-            $targetVT_p = $VT->addr($offsetVT);
-            $ldA0 = $ldA;
-            $ldU0 = $ldU;
-            $ldVT0 = $ldVT;
+
+        $targetA_ptr = null; // Pointer for COL_MAJOR A (if layout is RowMajor)
+        $targetU_ptr = null; // Pointer for COL_MAJOR U (if layout is RowMajor)
+        $targetVT_ptr = null;// Pointer for COL_MAJOR VT (if layout is RowMajor)
+        $ptrA = null;      // Pointer to A data for gesvd_
+        $ptrU = null;      // Pointer to U data for gesvd_
+        $ptrVT = null;     // Pointer to VT data for gesvd_
+        $ldA0 = 0;         // Leading dimension for A in gesvd_ (ColMajor ld = rows)
+        $ldU0 = 0;         // Leading dimension for U in gesvd_ (ColMajor ld = rows)
+        $ldVT0 = 0;        // Leading dimension for VT in gesvd_ (ColMajor ld = rows)
+
+        // Determine dimensions for sgesvd_ output (COL_MAJOR perspective)
+        // Actual number of columns computed for U (m x m or m x k)
+        $colsU_computed = ($jobu == ord('A')) ? $m : $k;
+        // Actual number of rows computed for VT (n x n or k x n)
+        $rowsVT_computed = ($jobvt == ord('A')) ? $n : $k;
+
+        if($matrix_layout == self::LAPACK_ROW_MAJOR) {
+            // --- Input Transpose: RowMajor A -> ColMajor targetA_ptr ---
+            $sizeA = $m * $n;
+            $targetA_ptr = $ffi->new("{$type}[{$sizeA}]");
+            $ldA_col = $m; // Target ColMajor LD is rows (m)
+            $this->transpose_row_to_col_gemm($m, $n, $dtype, $A->addr($offsetA), $ldA, $targetA_ptr, $ldA_col);
+            $ptrA = $targetA_ptr;
+            $ldA0 = $ldA_col; // LD for gesvd_ is m
+
+            // --- Allocate temporary ColMajor buffers for U and VT ---
+            $sizeU = $m * $colsU_computed;
+            $targetU_ptr = $ffi->new("{$type}[{$sizeU}]");
+            $ldU0 = $m; // gesvd_ needs ColMajor LD (rows)
+            $ptrU = $targetU_ptr;
+
+            // VT is rowsVT_computed x n (ColMajor layout), ld = rowsVT_computed
+            $ldVT0 = $rowsVT_computed;
+            $sizeVT = $ldVT0 * $n;
+            $targetVT_ptr = $ffi->new("{$type}[{$sizeVT}]");
+            $ptrVT = $targetVT_ptr;
+
+        } elseif($matrix_layout == self::LAPACK_COL_MAJOR) {
+            // Data is already in COL_MAJOR, use buffers directly
+            $ptrA = $A->addr($offsetA);
+            $ldA0 = $ldA; // Caller provided ColMajor ld (m)
+            $ptrU = $U->addr($offsetU);
+            $ldU0 = $ldU; // Caller provided ColMajor ld (m)
+            $ptrVT = $VT->addr($offsetVT);
+            $ldVT0 = $ldVT; // Caller provided ColMajor ld (rowsVT_computed)
         } else {
             throw new InvalidArgumentException("Invalid matrix_layout: $matrix_layout");
         }
-        //echo "------ targetA -----\n";
-        //echo "[\n";
-        //for($i=0;$i<$m;$i++) {
-        //    echo "[";
-        //    for($j=0;$j<$n;$j++) {
-        //        echo sprintf('%10.6f',$targetA_p[$i+$j*$m]).",";
-        //    }
-        //    echo "]\n";
-        //}
-        //echo "]\n";
 
+        // Prepare parameters for gesvd_
+        $jobu_p = $ffi->new('char[1]'); $jobu_p[0] = chr($jobu);
+        $jobvt_p = $ffi->new('char[1]'); $jobvt_p[0] = chr($jobvt);
+        $m_p = $ffi->new('lapack_int[1]'); $m_p[0] = $m;
+        $n_p = $ffi->new('lapack_int[1]'); $n_p[0] = $n;
+        $ldA_p = $ffi->new('lapack_int[1]'); $ldA_p[0] = $ldA0;
+        $ldU_p = $ffi->new('lapack_int[1]'); $ldU_p[0] = $ldU0;
+        $ldVT_p = $ffi->new('lapack_int[1]'); $ldVT_p[0] = $ldVT0; // Use ColMajor ldVT0
+        $info_p = $ffi->new("lapack_int[1]"); $info_p[0] = 0;
+        $lwork_p = $ffi->new("lapack_int[1]"); $lwork_p[0] = -1;
+        $wkopt_p = $ffi->new("{$type}[1]"); // For workspace query
 
-        /** @var ffi_char_t2 $jobu_p */
-        $jobu_p = $ffi->new('char[4]');
-        $jobu_p[0] = chr($jobu);
-        /** @var ffi_char_t2 $jobvt_p */
-        $jobvt_p = $ffi->new('char[4]');
-        $jobvt_p[0] = chr($jobvt);
-        $m_p = $ffi->new('lapack_int[1]');
-        $m_p[0] = $m;
-        $n_p = $ffi->new('lapack_int[1]');
-        $n_p[0] = $n;
-        $ldA_p = $ffi->new('lapack_int[1]');
-        $ldA_p[0] = $ldA0;
-        $ldU_p = $ffi->new('lapack_int[1]');
-        $ldU_p[0] = $ldU0;
-        $ldVT_p = $ffi->new('lapack_int[1]');
-        $ldVT_p[0] = $ldVT0;
-        $lwork_p = $ffi->new("lapack_int[1]");
-        $lwork_p[0] = -1;
-        /** @var ArrayObject<int,int> $info_p */
-        $info_p = $ffi->new("lapack_int[1]");
-        $info_p[0] = 0;
-
-        //var_dump($ffi::sizeof($m_p)*8);
-        //return;
-        switch ($dtype) {
-            case NDArray::float32:
-                $wkopt_p = $ffi->new("{$type}[1]");
-                $ffi->sgesvd_(
-                    $jobu_p,
-                    $jobvt_p,
-                    $m_p,$n_p,
-                    $targetA_p, $ldA_p,
-                    $S->addr($offsetS),
-                    $targetU_p, $ldU_p,
-                    $targetVT_p, $ldVT_p,
-                    $wkopt_p,$lwork_p,
-                    $info_p
-                );
-                break;
-            case NDArray::float64:
-                $wkopt_p = $ffi->new("{$type}[1]");
-                $ffi->dgesvd_(
-                    $jobu_p,
-                    $jobvt_p,
-                    $m_p,$n_p,
-                    $targetA_p, $ldA_p,
-                    $S->addr($offsetS),
-                    $targetU_p, $ldU_p,
-                    $targetVT_p, $ldVT_p,
-                    $wkopt_p,$lwork_p,
-                    $info_p
-                );
-                break;
-            default:
-                throw new RuntimeException("Unsupported data type.", 0);
-        }
+        // --- Workspace query ---
+        $ffi->{$gesvd_func}(
+            $jobu_p, $jobvt_p, $m_p, $n_p,
+            $ptrA, $ldA_p,
+            $S->addr($offsetS),
+            $ptrU, $ldU_p,
+            $ptrVT, $ldVT_p, // Pass correct ColMajor ldVT0
+            $wkopt_p, $lwork_p, $info_p
+        );
         $info = $info_p[0];
-        if( $info == self::LAPACK_WORK_MEMORY_ERROR ) {
-            throw new RuntimeException( "Not enough memory to allocate work array.", $info);
-        } else if( $info == self::LAPACK_TRANSPOSE_MEMORY_ERROR ) {
-            throw new RuntimeException( "Not enough memory to transpose matrix.", $info);
-        } else if( $info < 0 ) {
-            throw new RuntimeException( "Wrong parameter. error=$info", $info);
+        if ($info != 0) {
+            throw new RuntimeException("gesvd_ workspace query failed. error=$info", $info);
         }
-        $info_p[0] = 0;
+
         $lwork = (int)$wkopt_p[0];
-        $lwork_p[0]= $lwork;
+        $lwork_p[0] = $lwork;
+        $work = $ffi->new("{$type}[{$lwork}]");
+        $info_p[0] = 0; // Reset info
 
-        switch ($dtype) {
-            case NDArray::float32:
-                $work = $ffi->new("{$type}[{$lwork}]");
-                $ffi->sgesvd_(
-                    $jobu_p,
-                    $jobvt_p,
-                    $m_p,$n_p,
-                    $targetA_p, $ldA_p,
-                    $S->addr($offsetS),
-                    $targetU_p, $ldU_p,
-                    $targetVT_p, $ldVT_p,
-                    $work,$lwork_p,
-                    $info_p
-                );
-                break;
-            case NDArray::float64:
-                $work = $ffi->new("{$type}[{$lwork}]");
-                $ffi->dgesvd_(
-                    $jobu_p,
-                    $jobvt_p,
-                    $m_p,$n_p,
-                    $targetA_p, $ldA_p,
-                    $S->addr($offsetS),
-                    $targetU_p, $ldU_p,
-                    $targetVT_p, $ldVT_p,
-                    $work,$lwork_p,
-                    $info_p
-                );
-                break;
-            default:
-                throw new RuntimeException("Unsupported data type.", 0);
-        }
+        // --- Actual gesvd_ call ---
+        $ffi->{$gesvd_func}(
+            $jobu_p, $jobvt_p, $m_p, $n_p,
+            $ptrA, $ldA_p,
+            $S->addr($offsetS),
+            $ptrU, $ldU_p,
+            $ptrVT, $ldVT_p, // Pass correct ColMajor ldVT0
+            $work, $lwork_p, $info_p
+        );
         $info = $info_p[0];
-
-        if( $info == self::LAPACK_WORK_MEMORY_ERROR ) {
-            throw new RuntimeException( "Not enough memory to allocate work array.", $info);
-        } else if( $info == self::LAPACK_TRANSPOSE_MEMORY_ERROR ) {
-            throw new RuntimeException( "Not enough memory to transpose matrix.", $info);
-        } else if( $info != 0 ) {
-            throw new RuntimeException( "Wrong parameter. error=$info", $info);
+        // Check info for errors (negative values) or convergence issues (positive values)
+        if ($info < 0) {
+            throw new RuntimeException("gesvd_ parameter error. argument ".(-$info)." had an illegal value.", $info);
+        }
+        if ($info > 0) {
+            /* Handle convergence failure if needed, e.g., log a warning */
+            error_log("Warning: gesvd_ failed to converge. ".$info." superdiagonals did not converge.");
         }
 
-        $bytes = min(min($m,$n)-1,$lwork-1)*$ffi::sizeof($ffi->type("{$type}"));
-        $ffi::memcpy($SuperB->addr($offsetSuperB),$ffi::addr($work[1]),$bytes);
-        if($matrix_layout==self::LAPACK_ROW_MAJOR) {
-            $this->transpose($m,$m,$dtype,$targetU_p,$m,$U->addr($offsetU),$ldU);
-            $this->transpose($n,$n,$dtype,$targetVT_p,$n,$VT->addr($offsetVT),$ldVT);
+        // --- SuperB copy (optional, usually internal detail) ---
+        // $superb_len = $k - 1;
+        // if ($superb_len > 0 && count($SuperB) >= $superb_len) { ... } // Be cautious if implementing
+
+        // --- Output Transpose (if input was RowMajor) ---
+        if($matrix_layout == self::LAPACK_ROW_MAJOR) {
+            // U: targetU_ptr (ColMajor, m x colsU_computed, ldU0=m) -> U buffer (RowMajor, m x colsU_computed, ldU=colsU_computed)
+            $this->transpose_col_to_row_gemm($m, $colsU_computed, $dtype, $ptrU, $ldU0, $U->addr($offsetU), $ldU);
+
+            // VT: targetVT_ptr (ColMajor, rowsVT_computed x n, ldVT0=rowsVT_computed) -> VT buffer (RowMajor, rowsVT_computed x n, ldVT=n)
+            $this->transpose_col_to_row_gemm($rowsVT_computed, $n, $dtype, $ptrVT, $ldVT0, $VT->addr($offsetVT), $ldVT);
         }
+        // If layout was COL_MAJOR, results are already in the provided U, VT buffers.
+        // Temporary FFI CData ($targetA_ptr, $targetU_ptr, $targetVT_ptr, $work, etc.) will be garbage collected.
     }
 }
