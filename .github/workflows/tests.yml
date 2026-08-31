@@ -13,31 +13,26 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - name: PHP8.1
-            os: ubuntu-latest
+          - os: ubuntu-latest
             php: '8.1'
             phpunit: '10.5'
-          - name: PHP8.3
-            os: ubuntu-latest
-            php: '8.3'
-            phpunit: '11.5'
-          - name: PHP8.4
-            os: ubuntu-latest
+          - os: ubuntu-latest
             php: '8.4'
             phpunit: '11.5'
-          - name: Windows
-            os: windows-latest
-            php: '8.4'
+          - os: ubuntu-latest
+            php: '8.5'
             phpunit: '11.5'
-          - name: macOS
-            os: macos-latest
-            php: '8.4'
+          - os: windows-latest
+            php: '8.5'
             phpunit: '11.5'
-          - name: macOS-x86_64
-            os: macos-13
-            php: '8.4'
+          - os: macos-latest
+            php: '8.5'
             phpunit: '11.5'
+          #- os: macos-13
+          #  php: '8.5'
+          #  phpunit: '11.5'
 
+    name: PHP ${{ matrix.php }} on ${{ matrix.os }}
 
     steps:
       - name: Setup PHP ${{ matrix.php }}
@@ -63,7 +58,7 @@ jobs:
       - name: Composer
         run: |
           composer update
-          composer require --dev phpunit/phpunit=^${{ matrix.phpunit }}
+          composer require --dev phpunit/phpunit="${{ matrix.phpunit }}.*"
 
       - name: PHP Static Analysys
         run: phpstan

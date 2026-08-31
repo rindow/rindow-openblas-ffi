@@ -9,6 +9,8 @@ use InvalidArgumentException;
 use Rindow\Math\Buffer\FFI\Buffer;
 use Rindow\OpenBLAS\FFI\OpenBLASFactory;
 
+require_once __DIR__.'/CalcComplex.php';
+
 function C(
     ?float $r=null,
     ?float $i=null,
@@ -32,6 +34,11 @@ trait Utils
     {
         $blas = $this->factory->Blas();
         return $blas;
+    }
+
+    private function getCalcComplex() : object
+    {
+        return new CalcComplex();
     }
 
     public function translate_scal(

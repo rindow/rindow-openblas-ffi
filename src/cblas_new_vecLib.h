@@ -163,8 +163,8 @@ void cblas_zdrot(const __LAPACK_int N, void * X, const __LAPACK_int INCX, void *
 // MARK: ROTG
 void cblas_srotg(float * A, float * B, float * C, float * S);
 void cblas_drotg(double * A, double * B, double * C, double * S);
-void cblas_crotg(void * A, void * B, float * C, void * S);
-void cblas_zrotg(void * A, void * B, double * C, void * S);
+void cblas_crotg(void * A, void * B, void * C, void * S);
+void cblas_zrotg(void * A, void * B, void * C, void * S);
 
 // MARK: ROTM
 void cblas_srotm(const __LAPACK_int N, float * X, const __LAPACK_int INCX, float * Y,

@@ -111,6 +111,10 @@ class Blas
         return $to;
     }
 
+    //protected function isComplex(int $dtype) : bool
+    //{
+    //    return $dtype==NDArray::complex64||$dtype==NDArray::complex128;
+    //}
 
     /**
      *  X := alpha * X
@@ -635,6 +639,42 @@ class Blas
                 );
                 break;
             }
+            case NDArray::complex64:{
+                if(PHP_OS==='WINNT') {
+                    $ffi->crotg_(
+                        $A->addr($offsetA),
+                        $B->addr($offsetB),
+                        $C->addr($offsetC),
+                        $S->addr($offsetS),
+                    );
+                } else {
+                    $ffi->cblas_crotg(
+                        $A->addr($offsetA),
+                        $B->addr($offsetB),
+                        $C->addr($offsetC),
+                        $S->addr($offsetS),
+                    );
+                }
+                break;
+            }
+            case NDArray::complex128:{
+                if(PHP_OS==='WINNT') {
+                    $ffi->zrotg_(
+                        $A->addr($offsetA),
+                        $B->addr($offsetB),
+                        $C->addr($offsetC),
+                        $S->addr($offsetS),
+                    );
+                } else {
+                    $ffi->cblas_zrotg(
+                        $A->addr($offsetA),
+                        $B->addr($offsetB),
+                        $C->addr($offsetC),
+                        $S->addr($offsetS),
+                    );
+                }
+                break;
+            }
             default: {
                 throw new InvalidArgumentException('Unsuppored data type');
             }
@@ -665,6 +705,18 @@ class Blas
         if($dtype!=$Y->dtype()||$dtype!=$C->dtype()||$dtype!=$S->dtype()) {
             throw new InvalidArgumentException("Unmatch data type for A,B,C and S");
         }
+        //if($this->isComplex($dtype)) {
+        //    if($dtype===NDArray::complex64) {
+        //        $scaleType = NDArray::float32;
+        //    } else {
+        //        $scaleType = NDArray::float64;
+        //    }
+        //} else {
+        //    $scaleType = $dtype;
+        //}
+        //if($dtype!=$Y->dtype()||$scaleType!=$C->dtype()||$scaleType!=$S->dtype()) {
+        //    throw new InvalidArgumentException("Unmatch data type for A,B,C and S");
+        //}
 
         switch($dtype) {
             case NDArray::float32:{
@@ -687,6 +739,52 @@ class Blas
                 );
                 break;
             }
+            //case NDArray::complex64:{
+            //    if(PHP_OS==='WINNT') {
+            //        $n_p = $ffi->new('lapack_int[1]'); $n_p[0] = $n;
+            //        $incX_p = $ffi->new('lapack_int[1]'); $incX_p[0] = $incX;
+            //        $incY_p = $ffi->new('lapack_int[1]'); $incY_p[0] = $incY;
+            //        $ffi->csrot_(
+            //            $n_p,
+            //            $X->addr($offsetX),$incX_p,
+            //            $Y->addr($offsetY),$incY_p,
+            //            $C->addr($offsetC),
+            //            $S->addr($offsetS),
+            //        );
+            //    } else {
+            //        $ffi->cblas_csrot(
+            //            $n,
+            //            $X->addr($offsetX),$incX,
+            //            $Y->addr($offsetY),$incY,
+            //            $C[$offsetC],
+            //            $S[$offsetS],
+            //        );
+            //    }
+            //    break;
+            //}
+            //case NDArray::complex128:{
+            //    if(PHP_OS==='WINNT') {
+            //        $n_p = $ffi->new('lapack_int[1]'); $n_p[0] = $n;
+            //        $incX_p = $ffi->new('lapack_int[1]'); $incX_p[0] = $incX;
+            //        $incY_p = $ffi->new('lapack_int[1]'); $incY_p[0] = $incY;
+            //        $ffi->zdrot_(
+            //            $n_p,
+            //            $X->addr($offsetX),$incX_p,
+            //            $Y->addr($offsetY),$incY_p,
+            //            $C->addr($offsetC),
+            //            $S->addr($offsetS),
+            //        );
+            //    } else {
+            //        $ffi->cblas_zdrot(
+            //            $n,
+            //            $X->addr($offsetX),$incX,
+            //            $Y->addr($offsetY),$incY,
+            //            $C[$offsetC],
+            //            $S[$offsetS],
+            //        );
+            //    }
+            //    break;
+            //}
             default: {
                 throw new InvalidArgumentException('Unsuppored data type');
             }
@@ -934,6 +1032,83 @@ class Blas
             }
         }
     }
+
+    public function trsv(
+        int $order,
+        int $uplo,
+        int $trans,
+        int $diag,
+        int $n,
+        BufferInterface $A, int $offsetA, int $ldA,
+        BufferInterface $X, int $offsetX, int $incX,
+        ) : void
+    {
+        $ffi= $this->ffi;
+
+        $this->assert_shape_parameter("n", $n);
+        // Check Buffer A
+        $this->assert_matrix_buffer_spec("A", $A, $n, $n, $offsetA, $ldA);
+
+        // Check transA code
+        if($trans!==BLASIF::NoTrans && $trans!==BLASIF::ConjNoTrans &&
+            $trans!==BLASIF::Trans && $trans!==BLASIF::ConjTrans) {
+            throw new InvalidArgumentException("unknown transpose mode for bufferA: $trans");
+        }
+        // Check Buffer X
+        $this->assert_vector_buffer_spec("X", $X, $n, $offsetX, $incX);
+    
+        // Check Buffer A and X and Y
+        $dtype = $A->dtype();
+        if($dtype!=$X->dtype()) {
+            throw new InvalidArgumentException("Unmatch data type for A and X");
+        }
+        if($trans==BLASIF::ConjNoTrans && $this->isVecib()) {
+            throw new InvalidArgumentException("Unsupported dtype on MacOS: {$trans}");
+        }
+
+        switch($dtype) {
+            case NDArray::float32:{
+                $ffi->cblas_strsv(
+                    $order, $uplo, $trans, $diag,
+                    $n,
+                    $A->addr($offsetA),$ldA,
+                    $X->addr($offsetX),$incX,
+                );
+                break;
+            }
+            case NDArray::float64:{
+                $ffi->cblas_dtrsv(
+                    $order, $uplo, $trans, $diag,
+                    $n,
+                    $A->addr($offsetA),$ldA,
+                    $X->addr($offsetX),$incX,
+                );
+                break;
+            }
+            case NDArray::complex64:{
+                $ffi->cblas_ctrsv(
+                    $order, $uplo, $trans, $diag,
+                    $n,
+                    $A->addr($offsetA),$ldA,
+                    $X->addr($offsetX),$incX,
+                );
+                break;
+            }
+            case NDArray::complex128:{
+                $ffi->cblas_ztrsv(
+                    $order, $uplo, $trans, $diag,
+                    $n,
+                    $A->addr($offsetA),$ldA,
+                    $X->addr($offsetX),$incX,
+                );
+                break;
+            }
+            default: {
+                throw new InvalidArgumentException('Unsuppored data type');
+            }
+        }
+    }
+
 
     public function gemm(
         int $order,

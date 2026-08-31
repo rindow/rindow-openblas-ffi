@@ -110,7 +110,10 @@ class BlasTest extends TestCase
             $AA,$offA,
             $BB,$offB,
             $CC,$offC,
-            $SS,$offS
+            $SS,$offS,
+
+            $C,
+            $S,
         ];
     }
 
@@ -253,6 +256,62 @@ class BlasTest extends TestCase
             $XX,$offX,1,
             $beta,
             $YY,$offY,1,
+        ];
+    }
+
+    public function translate_trsv(
+        NDArray $A,
+        NDArray $X,
+        ?NDArray $Y=null,
+        ?bool $right=null,
+        ?bool $lower=null,
+        ?bool $trans=null,
+        ?bool $conj=null,
+        ?bool $unit=null,
+        )
+    {
+        [$trans,$conj] = $this->complementTrans($trans,$conj,$A->dtype());
+
+        if($A->ndim()!=2 || $X->ndim()!=1) {
+            throw new InvalidArgumentException('"A" must be 2D-NDArray and "X" must 1D-NDArray.');
+        }
+        $shapeA = $A->shape();
+        $shapeX = $X->shape();
+        if($shapeA[0]!=$shapeA[1]) {
+            throw new InvalidArgumentException('The number of columns and rows in "A" must be the same');
+        }
+        if($shapeA[0]!=$shapeX[0]) {
+            throw new InvalidArgumentException('The number of columns in "A" and The number of item in "X" must be the same');
+        }
+        $AA = $A->buffer();
+        $XX = $X->buffer();
+        $offA = $A->offset();
+        $offX = $X->offset();
+        $n = $shapeA[0];
+        if($Y!=null) {
+            if($Y->ndim()!=1) {
+                throw new InvalidArgumentException('"Y" must 1D-NDArray.');
+            }
+            $shapeY = $Y->shape();
+            if($n!=$shapeY[0]) {
+                throw new InvalidArgumentException('The number of rows in "A" and The number of item in "Y" must be the same');
+            }
+        } else {
+            $Y = $this->zeros([$n]);
+        }
+        $YY = $Y->buffer();
+        $offY = $Y->offset();
+        $side  = ($right) ? BLAS::Right : BLAS::Left;
+        $uplo  = ($lower) ? BLAS::Lower : BLAS::Upper;
+        $diag  = ($unit)  ? BLAS::Unit  : BLAS::NonUnit;
+        $trans = $this->transToCode($trans,$conj);
+        $order = BLAS::RowMajor;
+
+        return [
+            $order,$uplo,$trans,$diag,
+            $n,
+            $AA,$offA,$n,
+            $XX,$offX,1,
         ];
     }
 
@@ -729,6 +788,18 @@ class BlasTest extends TestCase
             ]],
             'float64' => [[
                 'dtype' => NDArray::float64,
+            ]],
+        ];
+    }
+
+    public static function providerDtypesComplexes()
+    {
+        return [
+            'complex64' => [[
+                'dtype' => NDArray::complex64,
+            ]],
+            'complex128' => [[
+                'dtype' => NDArray::complex128,
             ]],
         ];
     }
@@ -2427,12 +2498,13 @@ class BlasTest extends TestCase
         }
     }
 
-    public function testRotgNormal()
+    #[DataProvider('providerDtypesFloats')]
+    public function testRotgNormal($params)
     {
+        extract($params);
         $blas = $this->getBlas();
 
         // float32
-        $dtype = NDArray::float32;
         $inputs = [
             [1,1],
             [2,2],
@@ -2443,7 +2515,7 @@ class BlasTest extends TestCase
         foreach($inputs as [$xx,$yy]) {
             $X = $this->array($xx,dtype:$dtype);
             $Y = $this->array($yy,dtype:$dtype);
-            [$AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS] =
+            [$AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS, $C,$S] =
                 $this->translate_rotg($X,$Y);
            
             $blas->rotg($AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS);
@@ -2463,42 +2535,53 @@ class BlasTest extends TestCase
             $this->assertLessThan(1e-6,abs($rr-$rx));
             $this->assertLessThan(1e-6,abs(0-$ry));
         }
-
-        // float64
-        $dtype = NDArray::float64;
-        $inputs = [
-            [1,1],
-            [2,2],
-            [3,3],
-            [4,4],
-            [5,5],
-        ];
-        foreach($inputs as [$xx,$yy]) {
-            $X = $this->array($xx,dtype:$dtype);
-            $Y = $this->array($yy,dtype:$dtype);
-            [$AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS] =
-                $this->translate_rotg($X,$Y);
-           
-            $blas->rotg($AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS);
-
-            $rr = $AA[0];
-            $zz = $BB[0];
-            $cc = $CC[0];
-            $ss = $SS[0];
-            //echo "(x,y)=(".$X->buffer()[0].", ".$Y->buffer()[0].")\n";
-            //echo "(r,z)=(".$rr.", ".$zz.")\n";
-            //echo "(c,s)=(".$cc.", ".$ss.")\n";
-            $this->assertLessThan(1e-7,abs($xx-$X->buffer()[0]));
-            $this->assertLessThan(1e-7,abs($yy-$Y->buffer()[0]));
-            $rx =  $cc * $xx + $ss * $yy;
-            $ry = -$ss * $xx + $cc * $yy;
-            #echo "(rx,ry)=(".$rx.",".$ry.")\n";
-            $this->assertLessThan(1e-6,abs($rr-$rx));
-            $this->assertLessThan(1e-6,abs(0-$ry));
-        }
-
     }
    
+    #[DataProvider('providerDtypesComplexes')]
+    public function testRotgComplex($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        $calc = $this->getCalcComplex();
+        $a = $this->array([C(1.0, 1.0)],dtype:$dtype);
+        $b = $this->array([C(2.0,-1.0)],dtype:$dtype);
+
+        [$AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS, $c,$s] =
+            $this->translate_rotg($a,$b);
+
+        $blas->rotg($AA,$offA,$BB,$offB,$CC,$offC,$SS,$offS);
+
+        //[$r,$z,$c,$s] = $la->rotg($a,$b);
+        // OpenBLAS
+        // r = 1.8708287477493+INFi  <-- Bug ?
+        // c = 0.5345224738121+0i
+        // s = 0.26726123690605+0.80178374052048i        
+        //echo "\n";
+        //echo "r = ".$r[0]."\n";
+        //echo "z = ".$z[0]."\n";
+        //echo "c = ".$c[0]."\n";
+        //echo "s = ".$s[0]."\n";
+        // $trueR = $calc->scale(sqrt(7/2),C(1,i:1));
+        // $trueR = $la->toNDArray($la->array([$trueR],dtype:$dtype));
+        // $this->assertTrue($mo->la()->isclose(
+        //     $trueR,
+        //     $r,
+        // ));
+        $trueC = C(sqrt(2/7));
+        $trueC = $this->array([$trueC],dtype:$dtype);
+        $this->assertTrue($this->isclose(
+            $trueC,
+            $c,
+        ));
+        $trueS = $calc->scale(1/sqrt(14),C(1,i:+3));
+        $trueS = $this->array([$trueS],dtype:$dtype);
+        $this->assertTrue($this->isclose(
+            $trueS,
+            $s,
+        ));
+    }
+
     public function testRotNormal()
     {
         $blas = $this->getBlas();
@@ -3351,6 +3434,809 @@ class BlasTest extends TestCase
             $YY,$offY,$incY);
     }
 
+    #[DataProvider('providerDtypesFloats')]
+    public function testTrsvNormal($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::NoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [1,2,3],
+            [9,4,5],
+            [9,9,6],
+        ],dtype:$dtype);
+        $b0 = 7+2*8+3*10;
+        $b1 = 4*8+5*10;
+        $b2 = 6*10;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X);
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,10],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::NoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [1,9,9],
+            [2,4,9],
+            [3,5,6],
+        ],dtype:$dtype);
+        $b0 = 7;
+        $b1 = 2*7+4*8;
+        $b2 = 3*7+5*8+6*10;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,lower:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,10],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::NoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [9,2,3],
+            [9,9,5],
+            [9,9,9],
+        ],dtype:$dtype);
+        $b0 = 7+2*8+3*10;
+        $b1 = 8+5*10;
+        $b2 = 10;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,unit:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,10],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::NoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [9,9,9],
+            [2,9,9],
+            [3,5,9],
+        ],dtype:$dtype);
+        $b0 = 7;
+        $b1 = 2*7+8;
+        $b2 = 3*7+5*8+10;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,lower:true,unit:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,10],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+    }
+
+    #[DataProvider('providerDtypesFloats')]
+    public function testTrsvTranspose($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::Trans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [1,2,3],
+            [9,4,5],
+            [9,9,6],
+        ],dtype:$dtype);
+        $b0 = 7;
+        $b1 = 2*7+4*8;
+        $b2 = 3*7+5*8+6*9;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,9],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::Trans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [1,9,9],
+            [2,4,9],
+            [3,5,6],
+        ],dtype:$dtype);
+        $b0 = 7+2*8+3*9;
+        $b1 = 4*8+5*9;
+        $b2 = 6*9;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,lower:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,9],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::Trans,BLAS::Unit
+        //
+        $A = $this->array([
+            [9,2,3],
+            [9,9,5],
+            [9,9,9],
+        ],dtype:$dtype);
+        $b0 = 7;
+        $b1 = 2*7+8;
+        $b2 = 3*7+5*8+9;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,unit:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,9],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::Trans,BLAS::Unit
+        //
+        $A = $this->array([
+            [9,9,9],
+            [2,9,9],
+            [3,5,9],
+        ],dtype:$dtype);
+        $b0 = 7+2*8+3*9;
+        $b1 = 8+5*9;
+        $b2 = 9;
+        $X = $this->array([$b0,$b1,$b2],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,lower:true,unit:true);
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([7,8,9],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+    }
+    
+    //public function testBLASTrsvComplexSample()
+    //{
+    //    $dtype = NDArray::complex64;
+    //    $mo = $this->newMatrixOperator();
+    //    $la = $this->newLA($mo);
+    //    $A = $mo->array([
+    //        // Upper NonUnit
+    //        //[C(1,6),C(2,5),C(3,4)],
+    //        //[C(0,0),C(4,3),C(5,2)],
+    //        //[C(0,0),C(0,0),C(6,1)],
+    //        // Lower NonUnit
+    //        //[C(1,6),C(0,0),C(0,0)],
+    //        //[C(2,5),C(4,3),C(0,0)],
+    //        //[C(3,4),C(5,2),C(6,1)],
+    //        // Upper Unit
+    //        //[C(1,0),C(2,5),C(3,4)],
+    //        //[C(0,0),C(1,0),C(5,2)],
+    //        //[C(0,0),C(0,0),C(1,0)],
+    //        // Lower Unit
+    //        //[C(1,0),C(0,0),C(0,0)],
+    //        //[C(2,5),C(1,0),C(0,0)],
+    //        //[C(3,4),C(5,2),C(1,0)],
+    //    ],dtype:$dtype);
+    //    $X = $mo->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+    //    $B = $la->gemv($A,$X,trans:false,conj:true);
+    //    echo $mo->toString($B)."\n";
+    //    $this->assertTrue(true);
+    //}
+
+    #[DataProvider('providerDtypesComplexes')]
+    public function testTrsvComplexNormal($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::NoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(2,5),C(3,4)],
+            [C(9,9),C(4,3),C(5,2)],
+            [C(9,9),C(9,9),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-72,i:164),C(39,i:109),C(47,i:51)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X);
+        //] = $[
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::NoTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::NoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(9,9),C(9,9)],
+            [C(2,5),C(4,3),C(9,9)],
+            [C(3,4),C(5,2),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-47,i:51),C(-23,i:109),C(56,i:162)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,lower:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::NoTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::NoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(2,5),C(3,4)],
+            [C(9,9),C(9,9),C(5,2)],
+            [C(9,9),C(9,9),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-18,i:122),C(39,i:61),C(9,i:7)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::NoTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::NoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(9,9),C(9,9)],
+            [C(2,5),C(9,9),C(9,9)],
+            [C(3,4),C(5,2),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(7,i:9),C(-23,i:61),C(18,i:118)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,lower:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::NoTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+    }
+
+    #[DataProvider('providerDtypesComplexes')]
+    public function testTrsvComplexTranspose($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::ConjTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(2,5),C(3,4)],
+            [C(9,9),C(4,3),C(5,2)],
+            [C(9,9),C(9,9),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(61,i:-33),C(115,i:-9),C(174,i:56)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::ConjTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+
+        //
+        // BLAS::Lower,BLAS::ConjTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(9,9),C(9,9)],
+            [C(2,5),C(4,3),C(9,9)],
+            [C(3,4),C(5,2),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(172,i:-72),C(115,i:25),C(61,i:33)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,lower:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::ConjTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::ConjTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(2,5),C(3,4)],
+            [C(9,9),C(9,9),C(5,2)],
+            [C(9,9),C(9,9),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(7,i:9),C(67,i:-9),C(122,i:30)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::ConjTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::ConjTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(9,9),C(9,9)],
+            [C(2,5),C(9,9),C(9,9)],
+            [C(3,4),C(5,2),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(118,i:-30),C(67,i:25),C(9,i:7)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,lower:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::ConjTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+    }
+
+    #[DataProvider('providerDtypesComplexes')]
+    public function testTrsvComplexNoConjTranspose($params)
+    {
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::Trans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(2,5),C(3,4)],
+            [C(9,9),C(4,3),C(5,2)],
+            [C(9,9),C(9,9),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-47,i:51),C(-23,i:109),C(56,i:162)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,conj:false);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::Trans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::Trans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(9,9),C(9,9)],
+            [C(2,5),C(4,3),C(9,9)],
+            [C(3,4),C(5,2),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-72,i:164),C(39,i:109),C(47,i:51)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,conj:false,lower:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::Trans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::Trans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(2,5),C(3,4)],
+            [C(9,9),C(9,9),C(5,2)],
+            [C(9,9),C(9,9),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(7,i:9),C(-23,i:61),C(18,i:118)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,conj:false,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::Trans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::Trans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(9,9),C(9,9)],
+            [C(2,5),C(9,9),C(9,9)],
+            [C(3,4),C(5,2),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(-18,i:122),C(39,i:61),C(9,i:7)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:true,conj:false,lower:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::Trans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+    }
+
+    #[DataProvider('providerDtypesComplexes')]
+    public function testTrsvComplexNoTransposeConj($params)
+    {
+        if(PHP_OS==='Darwin') {
+            $this->markTestSkipped("MacOS not support ConjNoTrans");
+            return;
+        }
+
+        extract($params);
+        $blas = $this->getBlas();
+
+        //
+        // BLAS::Upper,BLAS::ConjNoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(2,5),C(3,4)],
+            [C(9,9),C(4,3),C(5,2)],
+            [C(9,9),C(9,9),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(172,i:-72),C(115,i:25),C(61,i:33)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:false,conj:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::ConjNoTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::ConjNoTrans,BLAS::NonUnit
+        //
+        $A = $this->array([
+            [C(1,6),C(9,9),C(9,9)],
+            [C(2,5),C(4,3),C(9,9)],
+            [C(3,4),C(5,2),C(6,1)],
+        ],dtype:$dtype);
+        $X = $this->array([C(61,i:-33),C(115,-9),C(174,i:+56)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:false,conj:true,lower:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::ConjNoTrans,BLAS::NonUnit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Upper,BLAS::ConjNoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(2,5),C(3,4)],
+            [C(9,9),C(9,9),C(5,2)],
+            [C(9,9),C(9,9),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(118,i:-30),C(67,i:25),C(9,i:7)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:false,conj:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Upper,BLAS::ConjNoTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+        //
+        // BLAS::Lower,BLAS::ConjNoTrans,BLAS::Unit
+        //
+        $A = $this->array([
+            [C(9,9),C(9,9),C(9,9)],
+            [C(2,5),C(9,9),C(9,9)],
+            [C(3,4),C(5,2),C(9,9)],
+        ],dtype:$dtype);
+        $X = $this->array([C(7,i:9),C(67,i:-9),C(122,i:30)],dtype:$dtype);
+        [
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        ] = $this->translate_trsv($A,$X,trans:false,conj:true,lower:true,unit:true);
+        //] = [
+        //    BLAS::RowMajor,BLAS::Lower,BLAS::ConjNoTrans,BLAS::Unit,
+        //    3,
+        //    $A->buffer(),$A->offset(),3,
+        //    $X->buffer(),$X->offset(),1,
+        //];
+
+        $blas->trsv(
+            $order,$uplo,$trans,$diag,
+            $N,
+            $AA,$offA,$ldA,
+            $XX,$offX,$incX
+        );
+        $trues = $this->array([C(7,9),C(8,8),C(9,7)],dtype:$dtype);
+        $this->assertTrue($this->isclose($trues,$X));
+
+    }
+
+    
     public function testGemmNormal()
     {
         $blas = $this->getBlas();

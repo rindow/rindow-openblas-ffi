@@ -148,11 +148,16 @@ void cblas_srot(const blasint N, float *X, const blasint incX, float *Y, const b
 void cblas_drot(const blasint N, double *X, const blasint incX, double *Y, const blasint incY, const double c, const double  s);
 //void cblas_csrot(const blasint n, const void *x, const blasint incx, void *y, const blasint incY, const float c, const float s);
 //void cblas_zdrot(const blasint n, const void *x, const blasint incx, void *y, const blasint incY, const double c, const double s);
+//void csrot_(blasint *n, const void *x, blasint *incx, void *y, blasint *incY, float *c,float *s);
+//void zdrot_(blasint *n, const void *x, blasint *incx, void *y, blasint *incY, double *c, double *s);
 
 void cblas_srotg(float *a, float *b, float *c, float *s);
 void cblas_drotg(double *a, double *b, double *c, double *s);
-void cblas_crotg(void *a, void *b, void *c, void *s);
-void cblas_zrotg(void *a, void *b, void *c, void *s);
+//void cblas_crotg(void *a, void *b, void *c, void *s);
+//void cblas_zrotg(void *a, void *b, void *c, void *s);
+void crotg_(void *a, void *b, void *c, void *s);
+void zrotg_(void *a, void *b, void *c, void *s);
+
 
 
 void cblas_srotm(const blasint N, float *X, const blasint incX, float *Y, const blasint incY, const float *P);

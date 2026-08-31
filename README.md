@@ -20,7 +20,7 @@ Very useful when you want to do deep learning with PHP!
 Requirements
 ============
 
-- PHP 8.1, PHP8.2, PHP8.3, PHP8.4
+- PHP 8.1 or later
 - Linux, Windows, macOS
 - OpenBLAS 0.3.8 or later(Linux/Windows), vecLib(macOS)
 

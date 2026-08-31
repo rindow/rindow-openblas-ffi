@@ -17,7 +17,7 @@ class OpenBLASFactory
     protected array $configMatrix = [
         'WINNT' => [
             'blas' => [
-                'header' => __DIR__.'/openblas.h',
+                'header' => __DIR__.'/openblas_win.h',
                 'libs' => ['libopenblas.dll'],
             ],  
             'lapacke' => [
